@@ -1,0 +1,5 @@
+[tools]
+amp = "latest"
+pipx = "latest"
+"pipx:specify-cli" = "latest"
+uv = "latest"

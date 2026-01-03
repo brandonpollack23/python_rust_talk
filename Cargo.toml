@@ -1,0 +1,13 @@
+[package]
+name = "loss_graph"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "loss_graph"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+ratatui = "0.29"
+crossterm = "0.28"
