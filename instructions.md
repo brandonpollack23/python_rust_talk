@@ -1,6 +1,6 @@
-# Rust + Python TUI Demo
+# Rust + Python Live Training Demo
 
-A demonstration of using Rust with ratatui to create a terminal-based loss graph visualization, exposed to Python via PyO3.
+A demonstration of using Rust with ratatui to create a real-time training visualization, where Python performs the training logic and Rust handles the TUI rendering.
 
 ## Prerequisites
 
@@ -25,7 +25,7 @@ uv run maturin develop --uv
 uv run python demo.py
 ```
 
-Press `q` to exit the visualization.
+Watch as Python performs gradient descent and Rust visualizes the loss in real-time. Press `q` to exit.
 
 ### 3. Run the presentation
 
@@ -40,42 +40,72 @@ Use arrow keys to navigate. On slides with executable code, press `Ctrl+E` to ru
 ```
 .
 ├── Cargo.toml          # Rust dependencies
-├── pyproject.toml      # Python build config
+├── pyproject.toml      # Python build config (includes numpy)
 ├── src/
-│   └── lib.rs          # Rust library with PyO3 bindings
-├── demo.py             # Python demo script
+│   └── lib.rs          # Rust LiveGraph class with PyO3 bindings
+├── demo.py             # Python training simulation with numpy
 ├── presentation.md     # presenterm slides
+├── explanation.md      # Detailed architecture explanation
 └── instructions.md     # This file
 ```
 
 ## How It Works
 
-1. **Rust Core** (`src/lib.rs`): Implements the TUI graph using ratatui, simulating a typical ML training loss curve with exponential decay and noise.
+1. **Python Training Logic** (`demo.py`): Implements polynomial regression with gradient descent using numpy. The `train_step(epoch)` function performs one SGD update and returns `(train_loss, val_loss)`.
 
-2. **PyO3 Bindings**: The `show_loss_graph` function is exposed to Python with configurable parameters:
-   - `epochs`: Number of training epochs (default: 100)
-   - `initial_loss`: Starting loss value (default: 2.5)
-   - `decay_rate`: How fast the loss decreases (default: 0.05)
-   - `noise_scale`: Amount of noise in the curve (default: 0.15)
-   - `title`: Graph title
+2. **Rust Visualization** (`src/lib.rs`): The `LiveGraph` class:
+   - Accepts a Python callable in its `run()` method
+   - Calls it each frame to get new loss values
+   - Updates the chart in real-time
+   - Handles keyboard input for quitting
 
-3. **Python Interface**: Simple one-liner to display the graph:
-   ```python
-   import loss_graph
-   loss_graph.show_loss_graph()
-   ```
+3. **Bidirectional Communication**: Rust controls the render loop but Python controls the training logic. Each frame:
+   - Rust calls `train_step_fn(epoch)` into Python
+   - Python computes gradients, updates weights, returns losses
+   - Rust extracts the tuple and updates the visualization
 
 ## API Reference
 
 ```python
 import loss_graph
+import numpy as np
 
-# All parameters are optional with sensible defaults
-loss_graph.show_loss_graph(
-    epochs=100,
-    initial_loss=2.5,
-    decay_rate=0.05,
-    noise_scale=0.15,
-    title="Training Loss Over Time"
+# Create a live graph
+graph = loss_graph.LiveGraph(
+    max_epochs=100,    # Total epochs to run
+    title="My Training"  # Graph title
 )
+
+# Define your training step
+def train_step(epoch: int) -> tuple[float, float]:
+    # Your training logic here (numpy, PyTorch, etc.)
+    # ...
+    return (train_loss, val_loss)
+
+# Run the visualization
+graph.run(train_step)
+```
+
+## Extending for PyTorch
+
+```python
+import torch
+import loss_graph
+
+model = MyModel()
+optimizer = torch.optim.Adam(model.parameters())
+
+def train_step(epoch: int) -> tuple[float, float]:
+    optimizer.zero_grad()
+    loss = compute_loss(model(X_train), y_train)
+    loss.backward()
+    optimizer.step()
+    
+    with torch.no_grad():
+        val_loss = compute_loss(model(X_val), y_val)
+    
+    return (loss.item(), val_loss.item())
+
+graph = loss_graph.LiveGraph(100, "PyTorch Training")
+graph.run(train_step)
 ```

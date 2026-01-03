@@ -1,6 +1,6 @@
 # Full Stack Explanation: loss_graph
 
-This repository demonstrates **Rust-powered Python extensions**. It builds a terminal UI (TUI) that displays a simulated ML training loss graph, written in Rust but callable from Python.
+This repository demonstrates **Rust-powered Python extensions** with **live bidirectional communication**. It builds a terminal UI (TUI) that displays a real-time ML training loss graph, where Python performs the training logic and Rust handles the visualization.
 
 ---
 
@@ -10,9 +10,15 @@ This repository demonstrates **Rust-powered Python extensions**. It builds a ter
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          Python Script                              │
 │                           (demo.py)                                 │
+│                                                                     │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │ Training Logic (numpy)                                      │   │
+│   │  - Polynomial regression with gradient descent              │   │
+│   │  - train_step(epoch) → (train_loss, val_loss)               │   │
+│   └─────────────────────────────────────────────────────────────┘   │
 │                               │                                     │
-│                     import loss_graph                               │
-│                     loss_graph.show_loss_graph(...)                 │
+│                     graph = LiveGraph(...)                          │
+│                     graph.run(train_step)                           │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │
                                 ▼
@@ -21,7 +27,7 @@ This repository demonstrates **Rust-powered Python extensions**. It builds a ter
 │                      (loss_graph.so / .pyd)                         │
 │                                                                     │
 │   Built by maturin from src/lib.rs                                  │
-│   Uses PyO3 to expose Rust functions to Python                      │
+│   Uses PyO3 to expose Rust classes to Python                        │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │
                                 ▼
@@ -30,23 +36,24 @@ This repository demonstrates **Rust-powered Python extensions**. It builds a ter
 │                                                                     │
 │   ┌─────────────────────────────────────────────────────────────┐   │
 │   │ PyO3 Layer                                                  │   │
-│   │  - #[pyfunction] show_loss_graph(...)                       │   │
-│   │  - #[pymodule] loss_graph                                   │   │
-│   │  - Converts Rust errors → Python exceptions                 │   │
+│   │  - #[pyclass] LiveGraph                                     │   │
+│   │  - #[pymethods] new(), add_point(), run()                   │   │
+│   │  - Calls Python callback each frame for new data            │   │
 │   └─────────────────────────────────────────────────────────────┘   │
 │                                │                                    │
 │                                ▼                                    │
 │   ┌─────────────────────────────────────────────────────────────┐   │
-│   │ Application Logic                                           │   │
-│   │  - generate_loss_data(): creates fake ML loss curve         │   │
-│   │  - exponential_decay_loss(): simulates loss with noise      │   │
+│   │ Live Graph State                                            │   │
+│   │  - Arc<Mutex<Vec<(f64, f64)>>> for train/val data           │   │
+│   │  - Thread-safe accumulation of loss points                  │   │
 │   └─────────────────────────────────────────────────────────────┘   │
 │                                │                                    │
 │                                ▼                                    │
 │   ┌─────────────────────────────────────────────────────────────┐   │
 │   │ TUI Rendering (ratatui + crossterm)                         │   │
-│   │  - run_graph(): main event loop                             │   │
-│   │  - Renders a Chart widget with two datasets                 │   │
+│   │  - run(): main event loop with 50ms poll timeout            │   │
+│   │  - Calls Python train_step_fn each iteration                │   │
+│   │  - Renders Chart widget with growing datasets               │   │
 │   │  - Handles keyboard input (q/Esc to quit)                   │   │
 │   └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
@@ -66,23 +73,52 @@ This repository demonstrates **Rust-powered Python extensions**. It builds a ter
 
 ### `src/lib.rs` — The Rust Core
 
-This is the entire application logic. It does three things:
+This implements the live visualization system with bidirectional Python communication:
 
-1. **Data Generation**
-   - `exponential_decay_loss()`: Computes a single loss value using exponential decay + sinusoidal noise
-   - `generate_loss_data()`: Generates a vector of `(epoch, loss)` tuples for plotting
+1. **LiveGraph Class**
+   - `#[pyclass] LiveGraph`: A Python-visible class that holds:
+     - `train_data` / `val_data`: Thread-safe vectors of `(epoch, loss)` points
+     - `max_epochs`: Total epochs to run
+     - `title`: Graph title
+   - `new()`: Constructor with optional parameters
+   - `add_point()`: Manually add a data point
+   - `run(train_step_fn)`: Main entry point that:
+     - Takes a Python callable as argument
+     - Calls it each frame with the current epoch
+     - Extracts `(train_loss, val_loss)` from the return value
+     - Updates the graph in real-time
 
 2. **TUI Rendering**
-   - `run_graph()`: The main function that:
-     - Enables terminal raw mode (captures all keypresses)
-     - Switches to an alternate screen buffer (so the graph doesn't pollute your shell history)
-     - Creates a `ratatui::Terminal`
-     - Enters an event loop: draws the chart, waits for keypress, exits on `q` or `Esc`
-     - Restores terminal state on exit
+   - Uses `event::poll(Duration::from_millis(50))` for non-blocking input
+   - Each iteration: call Python → add point → redraw → check for quit
+   - Shows "TRAINING" or "COMPLETE" status in the title
 
 3. **Python Bindings (PyO3)**
-   - `#[pyfunction] show_loss_graph(...)`: The function Python sees. Wraps `run_graph()` and converts Rust `io::Error` into Python `RuntimeError`
-   - `#[pymodule] loss_graph`: Declares the Python module and registers `show_loss_graph`
+   - `#[pyclass]` + `#[pymethods]` expose the class to Python
+   - `PyObject` accepts any Python callable
+   - `call1(py, (epoch,))` invokes Python with arguments
+   - `.extract::<(f64, f64)>(py)` converts Python tuple to Rust
+
+### `demo.py` — Python Training Logic
+
+Simulates a real ML training scenario:
+
+1. **Data Generation**
+   - Creates synthetic quadratic data: `y = x² + noise`
+   - Separate train and validation sets
+
+2. **Model**
+   - Simple polynomial: `y = w₂x² + w₁x + w₀`
+   - Starts with incorrect weights
+
+3. **Training Step**
+   - Computes analytical gradients for MSE loss
+   - Performs SGD update with decaying noise
+   - Returns `(train_loss, val_loss)` tuple
+
+4. **Visualization**
+   - Creates `LiveGraph` and passes `train_step` callback
+   - Rust calls Python each frame, Python updates weights and returns losses
 
 ### `Cargo.toml` — Rust Dependencies
 
@@ -92,46 +128,14 @@ This is the entire application logic. It does three things:
 | `ratatui` | High-level TUI framework. Provides `Chart`, `Block`, `Axis`, `Dataset` widgets. |
 | `crossterm` | Low-level terminal manipulation. Handles raw mode, screen switching, and keyboard events. Cross-platform (works on Windows/macOS/Linux). |
 
-The `crate-type = ["cdylib", "rlib"]` line tells Rust to produce:
-- `cdylib`: A C-compatible dynamic library (this becomes the Python module)
-- `rlib`: A Rust library (for testing/linking within Rust)
-
 ### `pyproject.toml` — Python Build Configuration
-
-This file tells Python how to build the project:
 
 | Field | Meaning |
 |-------|---------|
 | `build-backend = "maturin"` | Use maturin to compile the Rust code into a Python wheel |
 | `name = "loss_graph"` | The Python package name (matches the Rust crate name) |
+| `dependencies = ["numpy>=1.20"]` | Runtime dependency for the training simulation |
 | `requires-python = ">=3.8"` | Minimum Python version |
-
-When you run `maturin develop`, it:
-1. Runs `cargo build` to compile the Rust code
-2. Packages the resulting `.so` file as a Python extension
-3. Installs it into your virtual environment
-
-### `demo.py` — Python Entry Point
-
-A simple script that imports the Rust module and calls `show_loss_graph()`. This demonstrates that from Python's perspective, the Rust code looks like any other Python module.
-
-### `mise.toml` — Development Tool Versions
-
-`mise` is a polyglot version manager. This file declares:
-- `uv`: Python package manager (faster alternative to pip)
-- `pipx`: For installing Python CLI tools in isolation
-- `specify-cli`: Unknown/project-specific tool
-- `amp`: Unknown/project-specific tool
-
-You install mise, then `mise install` gives you the correct tool versions.
-
-### `uv.lock` — Python Dependency Lock
-
-Generated by `uv`. Pins exact versions of Python dependencies for reproducibility.
-
-### `Cargo.lock` — Rust Dependency Lock
-
-Generated by Cargo. Pins exact versions of Rust dependencies for reproducibility.
 
 ---
 
@@ -149,47 +153,47 @@ Generated by Cargo. Pins exact versions of Rust dependencies for reproducibility
 2. uv run python demo.py
    │
    ├── Python imports loss_graph (loads the .so)
+   ├── Python imports numpy, sets up training data
    │
-   └── Calls loss_graph.show_loss_graph(...)
+   └── Calls graph.run(train_step)
        │
-       └── Rust takes over the terminal, draws the chart, waits for 'q'
+       └── Rust event loop:
+           ├── Call train_step(epoch) → Python computes gradient, updates weights
+           ├── Python returns (train_loss, val_loss)
+           ├── Rust adds point to graph, redraws
+           └── Repeat until max_epochs or 'q' pressed
 ```
 
 ---
 
-## What Each Technology Does
+## Data Flow During Training
 
-| Technology | Role |
-|------------|------|
-| **Rust** | The implementation language. Provides memory safety, speed, and a rich ecosystem. |
-| **PyO3** | A Rust crate that provides bindings between Rust and Python. It handles type conversion, the GIL, and exception propagation. |
-| **maturin** | A build tool that compiles Rust code into Python wheels. Handles the complex linking and packaging. |
-| **ratatui** | A Rust TUI framework (fork of `tui-rs`). Provides declarative widgets for terminal UIs. |
-| **crossterm** | A Rust crate for cross-platform terminal manipulation. Handles raw mode, colors, and input events. |
-| **uv** | A fast Python package manager. Replaces pip/venv. Creates `.venv/` and manages dependencies. |
-| **mise** | A tool version manager (like asdf/nvm). Ensures everyone uses the same tool versions. |
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│   Rust      │  call   │   Python    │ compute │   NumPy     │
+│  LiveGraph  │ ──────► │ train_step  │ ──────► │  Gradient   │
+│   .run()    │         │   (epoch)   │         │   Descent   │
+└─────────────┘         └─────────────┘         └─────────────┘
+      ▲                       │
+      │                       │ return (train_loss, val_loss)
+      │                       ▼
+      │                 ┌─────────────┐
+      │                 │  Tuple      │
+      │                 │ Extraction  │
+      │                 └─────────────┘
+      │                       │
+      └───────────────────────┘
+              add_point()
+              redraw chart
+```
 
----
-
-## Data Flow When Running
-
-1. Python calls `loss_graph.show_loss_graph(epochs=100, ...)`
-2. PyO3 converts Python arguments to Rust types
-3. `run_graph()` is called:
-   - Generates training data: 100 `(epoch, loss)` points with decay + noise
-   - Generates validation data: similar but with 10% higher initial loss, slower decay, more noise
-   - Enables raw mode (terminal no longer line-buffers input)
-   - Switches to alternate screen (new blank terminal buffer)
-   - Enters render loop:
-     - Clears screen
-     - Draws `Chart` widget with two `Dataset`s (training = cyan, validation = yellow)
-     - Draws legend bar at bottom
-     - Waits for keypress
-     - If `q` or `Esc`, break loop
-   - Disables raw mode
-   - Returns to normal screen
-4. PyO3 converts Rust `Result` to Python (raises exception on error)
-5. Python continues (`print("✅ Demo complete!")`)
+1. Rust calls `train_step_fn.call1(py, (epoch,))`
+2. Python executes gradient descent step using numpy
+3. Python returns `(train_loss, val_loss)` tuple
+4. PyO3 extracts tuple to Rust `(f64, f64)`
+5. Rust calls `add_point()` to store the data
+6. ratatui redraws the chart with updated data
+7. Loop continues until `max_epochs` reached
 
 ---
 
@@ -197,19 +201,31 @@ Generated by Cargo. Pins exact versions of Rust dependencies for reproducibility
 
 | Decision | Rationale |
 |----------|-----------|
-| **Rust for the TUI** | Terminal rendering is performance-sensitive (smooth redraws). Rust's `ratatui` is mature and fast. |
-| **Python bindings** | ML practitioners use Python. This lets them call the visualizer from their training scripts without leaving Python. |
-| **PyO3 + maturin** | The standard way to build Rust → Python extensions. Handles all the ABI complexity. |
-| **Single function API** | Simple is better. One function with sensible defaults makes adoption trivial. |
+| **Python for training logic** | ML practitioners write Python. Keep the familiar numpy/torch workflow. |
+| **Rust for visualization** | Terminal rendering needs smooth redraws. Rust's ratatui is fast and flicker-free. |
+| **Callback-based design** | Python stays in control of the training loop logic. Rust just asks for data. |
+| **Real-time updates** | More engaging demo. Shows true bidirectional communication, not just "Rust generates data". |
 
 ---
 
 ## Extending This Code
 
-To add a new Python-callable function:
+**To add more metrics:**
+1. Change `train_step` to return more values: `(train_loss, val_loss, accuracy)`
+2. Update Rust to extract a 3-tuple and add a third dataset
+3. Add another `Dataset` to the chart
 
-1. Add `#[pyfunction]` to a Rust function in `lib.rs`
-2. Register it in the `#[pymodule]` block: `m.add_function(wrap_pyfunction!(your_fn, m)?)?;`
-3. Rebuild: `uv run maturin develop --uv`
+**To add pause/resume:**
+1. Handle spacebar in Rust's event loop
+2. Skip calling `train_step_fn` when paused
+3. Update status display
 
-To add new chart types or widgets, use `ratatui`'s widget system in `run_graph()`.
+**To support PyTorch:**
+```python
+def train_step(epoch: int) -> tuple[float, float]:
+    optimizer.zero_grad()
+    loss = model(X_train).loss()
+    loss.backward()
+    optimizer.step()
+    return (loss.item(), compute_val_loss())
+```
