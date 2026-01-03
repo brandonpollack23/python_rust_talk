@@ -1,7 +1,7 @@
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
 use pyo3::prelude::*;
 use ratatui::{
@@ -42,27 +42,36 @@ impl LiveGraph {
     }
 
     fn start(&mut self) -> PyResult<()> {
-        enable_raw_mode()
+        // Use crossterm to control the terminal directly (eg use alternate screen and render ratatui).
+        crossterm::terminal::enable_raw_mode()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let mut stdout = stdout();
         execute!(stdout, EnterAlternateScreen)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        // Setup ratatui to work with crossterm backend.
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         self.terminal = Some(terminal);
+
         Ok(())
     }
 
+    /// Simply add a new point to the graph.
     fn add_point(&mut self, epoch: f64, train_loss: f64, val_loss: f64) {
+        // TODO just pass 2d numpy tensor and then foreach graph and assign
+        // random color or something OR have more dimensions to describe color.
         self.train_data.push((epoch, train_loss));
         self.val_data.push((epoch, val_loss));
     }
 
+    /// Set as complete, used for display purposes.
     fn mark_complete(&mut self) {
         self.training_complete = true;
     }
 
+    /// Draw the current graph. Returns True if the user requested to exit.
     fn draw(&mut self) -> PyResult<bool> {
         let terminal = self.terminal.as_mut().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("Terminal not started. Call start() first.")
@@ -73,7 +82,7 @@ impl LiveGraph {
             .iter()
             .chain(self.val_data.iter())
             .map(|(_, y)| *y)
-            .fold(0.5_f64, f64::max);
+            .fold(0.1_f64, f64::max);
 
         let current_epoch = self.train_data.len();
         let max_epochs = self.max_epochs;
@@ -82,9 +91,14 @@ impl LiveGraph {
         let val_data = &self.val_data;
         let training_complete = self.training_complete;
 
+        // The actual Ratatui drawing code.
         terminal
             .draw(|frame| {
                 let area = frame.area();
+
+                // Splits the terminal into a vertical layout with the top graph
+                // area having a min height of 10px and the bottom area having a
+                // fixed hegiht of 3px (best effort).
                 let chunks =
                     Layout::vertical([Constraint::Min(10), Constraint::Length(3)]).split(area);
 
@@ -122,10 +136,11 @@ impl LiveGraph {
                 ];
 
                 let status = if training_complete {
-                    "COMPLETE"
+                    "COMPLETE 🎉"
                 } else {
-                    "TRAINING"
+                    "TRAINING 🤔"
                 };
+
                 let chart = Chart::new(datasets)
                     .block(
                         Block::default()
@@ -151,8 +166,10 @@ impl LiveGraph {
                             .labels(y_labels),
                     );
 
+                // Render the chart to the top chunk.
                 frame.render_widget(chart, chunks[0]);
 
+                // Create the legend.
                 let legend = Block::default()
                     .title(format!(
                         " [Cyan] Training | [Yellow] Validation | Epoch {}/{} | Press 'q' to exit ",
@@ -160,12 +177,19 @@ impl LiveGraph {
                     ))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::DarkGray));
+
+                // And render to the bottom chunk.
                 frame.render_widget(legend, chunks[1]);
             })
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        if event::poll(Duration::from_millis(50))
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        // Poll for exit.  Short if we're still training to keep UI responsive.
+        if (self.training_complete
+            && event::poll(Duration::from_millis(10))
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?)
+            || !self.training_complete
+                && event::poll(Duration::from_millis(50))
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
         {
             if let Event::Key(key) = event::read()
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
@@ -183,7 +207,7 @@ impl LiveGraph {
 
     fn stop(&mut self) -> PyResult<()> {
         if let Some(mut terminal) = self.terminal.take() {
-            disable_raw_mode()
+            crossterm::terminal::disable_raw_mode()
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             execute!(terminal.backend_mut(), LeaveAlternateScreen)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
@@ -195,7 +219,7 @@ impl LiveGraph {
 impl Drop for LiveGraph {
     fn drop(&mut self) {
         if self.terminal.is_some() {
-            let _ = disable_raw_mode();
+            let _ = crossterm::terminal::disable_raw_mode();
             let _ = execute!(stdout(), LeaveAlternateScreen);
         }
     }

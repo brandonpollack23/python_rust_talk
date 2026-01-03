@@ -14,3 +14,10 @@ dev = ["maturin>=1.4,<2.0"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "**/*.rs" },
+]

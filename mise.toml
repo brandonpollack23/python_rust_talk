@@ -3,3 +3,6 @@ amp = "latest"
 pipx = "latest"
 "pipx:specify-cli" = "latest"
 uv = "latest"
+
+[env]
+PYO3_BUILD_EXTENSION_MODULE="1"
