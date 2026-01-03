@@ -53,9 +53,25 @@ def train_step(epoch: int) -> tuple[float, float]:
     return (float(train_loss), float(val_loss))
 
 
-# Create live graph and run with our training function
-graph = loss_graph.LiveGraph(max_epochs=100, title="Polynomial Regression Training")
-graph.run(train_step)
+# Create live graph and run training loop from Python
+max_epochs = 100
+graph = loss_graph.LiveGraph(max_epochs=max_epochs, title="Polynomial Regression Training")
+
+graph.start()
+try:
+    for epoch in range(max_epochs):
+        train_loss, val_loss = train_step(epoch)
+        graph.add_point(float(epoch), train_loss, val_loss)
+
+        if graph.draw():  # Returns True if user pressed 'q'
+            break
+    else:
+        # Training completed, show final state
+        graph.mark_complete()
+        while not graph.draw():
+            pass  # Wait for user to press 'q'
+finally:
+    graph.stop()
 
 print("\n✅ Training complete!")
 print(f"   Final weights: w0={weights[0]:.4f}, w1={weights[1]:.4f}, w2={weights[2]:.4f}")

@@ -49,22 +49,21 @@ The Rust Code
 ```rust
 #[pyclass]
 struct LiveGraph {
-    train_data: Arc<Mutex<Vec<(f64, f64)>>>,
-    val_data: Arc<Mutex<Vec<(f64, f64)>>>,
+    train_data: Vec<(f64, f64)>,
+    val_data: Vec<(f64, f64)>,
     max_epochs: usize,
     title: String,
+    terminal: Option<Terminal<...>>,
 }
 
 #[pymethods]
 impl LiveGraph {
-    fn run(&self, py: Python<'_>, 
-           train_step_fn: PyObject) -> PyResult<()> {
-        // ... render loop calls Python each frame
-        let result = train_step_fn.call1(py, (epoch,))?;
-        let (train_loss, val_loss): (f64, f64) = 
-            result.extract(py)?;
-        self.add_point(epoch, train_loss, val_loss);
-    }
+    fn start(&mut self) -> PyResult<()> { ... }
+    fn add_point(&mut self, epoch: usize, 
+                 train: f64, val: f64) { ... }
+    fn draw(&mut self) -> PyResult<bool> { ... }
+    fn mark_complete(&mut self) { ... }
+    fn stop(&mut self) -> PyResult<()> { ... }
 }
 ```
 
@@ -73,51 +72,54 @@ impl LiveGraph {
 Python Training Logic
 ===
 
-Real gradient descent with numpy:
+Python controls the entire training loop:
 
 ```python
-def train_step(epoch: int) -> tuple[float, float]:
-    global weights
-    
-    # Compute gradients
-    pred = weights[0] + weights[1]*X + weights[2]*X**2
-    error = pred - y_train
-    
-    # SGD update
-    weights -= learning_rate * gradients
-    
-    return (train_loss, val_loss)
+graph = loss_graph.LiveGraph(100, "Training")
+graph.start()
+try:
+    for epoch in range(100):
+        # Your training logic
+        train_loss, val_loss = train_step()
+        
+        # Update visualization
+        graph.add_point(epoch, train_loss, val_loss)
+        if graph.draw():  # Returns True if 'q' pressed
+            break
+    graph.mark_complete()
+finally:
+    graph.stop()  # Always restore terminal
 ```
 
 <!-- pause -->
 
-Rust calls this **every frame**!
+No callbacks — simple imperative API!
 
 <!-- end_slide -->
 
-Python Usage
+Key Pattern
 ===
 
-Simple, ergonomic API:
+The `try/finally` pattern ensures cleanup:
 
 ```python
-import loss_graph
-import numpy as np
-
-# Create the live graph
-graph = loss_graph.LiveGraph(
-    max_epochs=100,
-    title="Training Progress"
-)
-
-# Run with your training function
-graph.run(train_step)
+graph.start()
+try:
+    # Training loop here
+    for epoch in range(max_epochs):
+        ...
+        graph.add_point(epoch, train, val)
+        if graph.draw():
+            break
+finally:
+    graph.stop()  # Terminal always restored!
 ```
 
 <!-- pause -->
 
-Python controls training logic.
-Rust handles visualization.
+- Python controls the training loop
+- Rust only handles terminal rendering
+- Clean separation of concerns
 
 <!-- end_slide -->
 
@@ -135,20 +137,26 @@ X = np.linspace(-1, 1, 100)
 y = X**2 + 0.1 * np.random.randn(100)
 weights = np.array([0.0, 0.5, 0.5])
 
-def train_step(epoch):
+def train_step():
     global weights
     pred = weights[0] + weights[1]*X + weights[2]*X**2
     err = pred - y
     weights -= 0.1 * np.array([
-        2*np.mean(err), 
-        2*np.mean(err*X), 
-        2*np.mean(err*X**2)
+        2*np.mean(err), 2*np.mean(err*X), 2*np.mean(err*X**2)
     ])
-    loss = np.mean((pred - y)**2)
-    return (float(loss), float(loss * 1.1))
+    return float(np.mean(err**2)), float(np.mean(err**2) * 1.1)
 
 graph = loss_graph.LiveGraph(50, "Live Demo")
-graph.run(train_step)
+graph.start()
+try:
+    for epoch in range(50):
+        train_loss, val_loss = train_step()
+        graph.add_point(epoch, train_loss, val_loss)
+        if graph.draw():
+            break
+    graph.mark_complete()
+finally:
+    graph.stop()
 ```
 
 <!-- end_slide -->
@@ -173,10 +181,10 @@ That's it! 🎉
 Key Takeaways
 ===
 
-1. **PyO3** enables bidirectional Rust ↔ Python
-2. **Callbacks** let Python control the logic
-3. **Rust** handles high-frequency rendering
-4. Real-time visualization of Python training!
+1. **PyO3** creates Python bindings for Rust
+2. **Python drives** the training loop — no callbacks
+3. **Rust handles** terminal state and rendering
+4. **try/finally** ensures clean terminal restoration
 
 <!-- pause -->
 

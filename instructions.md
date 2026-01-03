@@ -15,14 +15,16 @@ A demonstration of using Rust with ratatui to create a real-time training visual
 ### 1. Build and install the Python module
 
 ```bash
-# Build and install in development mode using uv
-uv run maturin develop --uv
+# Build and install in development mode
+uv sync
+uv run maturin develop --release
 ```
 
 ### 2. Run the demo
 
 ```bash
-uv run python demo.py
+# Use --no-sync to prevent uv from rebuilding the package
+uv run --no-sync python demo.py
 ```
 
 Watch as Python performs gradient descent and Rust visualizes the loss in real-time. Press `q` to exit.
@@ -51,40 +53,63 @@ Use arrow keys to navigate. On slides with executable code, press `Ctrl+E` to ru
 
 ## How It Works
 
-1. **Python Training Logic** (`demo.py`): Implements polynomial regression with gradient descent using numpy. The `train_step(epoch)` function performs one SGD update and returns `(train_loss, val_loss)`.
+1. **Python Training Logic** (`demo.py`): Implements polynomial regression with gradient descent using numpy. Python controls the entire training loop.
 
-2. **Rust Visualization** (`src/lib.rs`): The `LiveGraph` class:
-   - Accepts a Python callable in its `run()` method
-   - Calls it each frame to get new loss values
-   - Updates the chart in real-time
-   - Handles keyboard input for quitting
+2. **Rust Visualization** (`src/lib.rs`): The `LiveGraph` class provides:
+   - `start()` / `stop()` — enter/exit TUI mode
+   - `add_point()` — add a data point
+   - `draw()` — render and check for quit
+   - `mark_complete()` — update status display
 
-3. **Bidirectional Communication**: Rust controls the render loop but Python controls the training logic. Each frame:
-   - Rust calls `train_step_fn(epoch)` into Python
-   - Python computes gradients, updates weights, returns losses
-   - Rust extracts the tuple and updates the visualization
+3. **Python-Driven Architecture**: Python controls everything:
+   - Calls `graph.start()` to enter TUI mode
+   - Runs the training loop with `for epoch in range(...)`
+   - Calls `graph.add_point()` and `graph.draw()` each iteration
+   - Uses `try/finally` to ensure `graph.stop()` is called for cleanup
 
 ## API Reference
 
 ```python
 import loss_graph
-import numpy as np
 
 # Create a live graph
 graph = loss_graph.LiveGraph(
-    max_epochs=100,    # Total epochs to run
+    max_epochs=100,    # Total epochs (for X-axis scaling)
     title="My Training"  # Graph title
 )
 
-# Define your training step
-def train_step(epoch: int) -> tuple[float, float]:
-    # Your training logic here (numpy, PyTorch, etc.)
-    # ...
-    return (train_loss, val_loss)
+# Enter TUI mode
+graph.start()
 
-# Run the visualization
-graph.run(train_step)
+try:
+    for epoch in range(100):
+        # Your training logic here
+        train_loss, val_loss = train_step()
+        
+        # Add data point
+        graph.add_point(epoch, train_loss, val_loss)
+        
+        # Render and check for quit ('q' key)
+        if graph.draw():
+            break
+    
+    # Mark training as complete (updates title)
+    graph.mark_complete()
+finally:
+    # Always restore terminal state
+    graph.stop()
 ```
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `LiveGraph(max_epochs, title)` | Create a new graph instance |
+| `start()` | Enter TUI mode (raw mode, alternate screen) |
+| `add_point(epoch, train_loss, val_loss)` | Add a data point to the graph |
+| `draw()` | Render the chart; returns `True` if 'q' pressed |
+| `mark_complete()` | Mark training as complete (updates title) |
+| `stop()` | Exit TUI mode and restore terminal |
 
 ## Extending for PyTorch
 
@@ -94,18 +119,23 @@ import loss_graph
 
 model = MyModel()
 optimizer = torch.optim.Adam(model.parameters())
-
-def train_step(epoch: int) -> tuple[float, float]:
-    optimizer.zero_grad()
-    loss = compute_loss(model(X_train), y_train)
-    loss.backward()
-    optimizer.step()
-    
-    with torch.no_grad():
-        val_loss = compute_loss(model(X_val), y_val)
-    
-    return (loss.item(), val_loss.item())
-
 graph = loss_graph.LiveGraph(100, "PyTorch Training")
-graph.run(train_step)
+
+graph.start()
+try:
+    for epoch in range(100):
+        optimizer.zero_grad()
+        loss = compute_loss(model(X_train), y_train)
+        loss.backward()
+        optimizer.step()
+        
+        with torch.no_grad():
+            val_loss = compute_loss(model(X_val), y_val)
+        
+        graph.add_point(epoch, loss.item(), val_loss.item())
+        if graph.draw():
+            break
+    graph.mark_complete()
+finally:
+    graph.stop()
 ```
