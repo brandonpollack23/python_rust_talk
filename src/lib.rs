@@ -16,6 +16,7 @@ use ratatui::{
 use std::io::{stdout, Stdout};
 use std::time::Duration;
 
+/// A live updating graph for training/validation loss powered by Ratatui in rust!
 #[pyclass]
 struct LiveGraph {
     train_data: Vec<(f64, f64)>,
@@ -41,6 +42,7 @@ impl LiveGraph {
         }
     }
 
+    /// Initialize the graph to start rendering.  This takes over your terminal.
     fn start(&mut self) -> PyResult<()> {
         // Use crossterm to control the terminal directly (eg use alternate screen and render ratatui).
         crossterm::terminal::enable_raw_mode()
@@ -58,7 +60,7 @@ impl LiveGraph {
         Ok(())
     }
 
-    /// Simply add a new point to the graph.
+    /// Add a new point to the graph.
     fn add_point(&mut self, epoch: f64, train_loss: f64, val_loss: f64) {
         // TODO just pass 2d numpy tensor and then foreach graph and assign
         // random color or something OR have more dimensions to describe color.
