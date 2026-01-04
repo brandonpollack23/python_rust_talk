@@ -50,25 +50,107 @@ The Rust Code
 ===
 
 ```rust
-#[pyclass]
+#[pyclass]  // ← Makes this struct accessible from Python
 struct LiveGraph {
-    train_data: Vec<(f64, f64)>,
-    val_data: Vec<(f64, f64)>,
+    train_data: Vec<(f64, f64)>,  // Store training points
+    val_data: Vec<(f64, f64)>,    // Store validation points
     max_epochs: usize,
     title: String,
-    terminal: Option<Terminal<...>>,
-}
-
-#[pymethods]
-impl LiveGraph {
-    fn start(&mut self) -> PyResult<()> { ... }
-    fn add_point(&mut self, epoch: usize, 
-                 train: f64, val: f64) { ... }
-    fn draw(&mut self) -> PyResult<bool> { ... }
-    fn mark_complete(&mut self) { ... }
-    fn stop(&mut self) -> PyResult<()> { ... }
+    terminal: Option<Terminal<CrosstermBackend<Stdout>>>,
 }
 ```
+
+<!-- end_slide -->
+
+```rust
+#[pymethods]  // ← Makes these methods callable from Python
+impl LiveGraph {
+    #[new]
+    fn new(max_epochs: usize, title: String) -> Self {
+        // Constructor: Initialize the graph
+        LiveGraph {
+            train_data: Vec::new(),
+            val_data: Vec::new(),
+            max_epochs,
+            title,
+            terminal: None,
+        }
+    }
+    
+    fn start(&mut self) -> PyResult<()> {
+        // Initialize terminal, clear screen, set up UI
+        self.terminal = Some(Terminal::new(...)?);
+        // ...
+        Ok(())
+    }
+```
+<!-- end_slide -->
+    
+```rust
+    fn add_point(&mut self, epoch: usize, train: f64, val: f64) {
+        // Append new training data point
+        self.train_data.push((epoch as f64, train));
+        self.val_data.push((epoch as f64, val));
+    }
+    
+    fn draw(&mut self) -> PyResult<bool> {
+        // Render the graph in terminal and check for 'q' key
+        let term = self.terminal.as_mut()
+            .ok_or(PyValueError::new_err("Terminal not initialized"))?;
+        
+        // Draw the UI layout
+        term.draw(|frame| {
+            let area = frame.area();
+            
+            // Create a chart widget with our data
+            let chart = Chart::new(vec![
+                Dataset::default()
+                    .name("Train Loss")
+                    .data(&self.train_data),
+                Dataset::default()
+                    .name("Val Loss")
+                    .data(&self.val_data),
+            ])
+            .title(self.title.clone())
+            .x_axis(Axis::default()
+                .bounds([0.0, self.max_epochs as f64]))
+            .y_axis(Axis::default()
+                .bounds([0.0, 1.0]));
+            
+            // Render to the terminal
+            frame.render_widget(chart, area);
+        })?;
+        
+        // Check if user pressed 'q' to quit
+        if crossterm::event::poll(std::time::Duration::from_millis(10))? {
+            if let Event::Key(key) = crossterm::event::read()? {
+                if key.code == KeyCode::Char('q') {
+                    return Ok(true);  // Signal quit
+                }
+            }
+        }
+        Ok(false)
+    }
+```
+<!-- end_slide -->
+    
+**Key Rust Concepts for Beginners:**
+- `&self` - Immutable reference; read-only access (like Python's self)
+- `&mut self` - Mutable reference; allows the method to modify the struct's data
+- `mut` - Keyword that marks a variable/reference as mutable (can be changed)
+
+In rust we can only have one reference to mutable data at a time to ensure safety (this is because we don't have a GIL)
+<!-- pause -->
+- `Vec<T>` - Rust's growable list (like Python list)
+- `Option<T>` - Type that can be `Some(value)` or `None` (safer than null)
+
+These are some basic data types in rust.  In rust, unlike python, we always have to specify the data type.
+<!-- pause -->
+
+- `#[pyclass]` - PyO3 macro that exposes a Rust struct to Python
+- `#[pymethods]` - Macro that exposes methods to Python  
+
+Macros are code that writes code for you.  They are identified by the `#[]` syntax (among others in rust).
 
 <!-- end_slide -->
 Why would you do this?
@@ -183,7 +265,6 @@ Key Takeaways
 1. **PyO3** creates Python bindings for Rust
 2. **Python drives** the training loop — no callbacks
 3. **Rust handles** terminal state and rendering
-4. **try/finally** ensures clean terminal restoration
 
 <!-- pause -->
 
