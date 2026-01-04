@@ -1,22 +1,25 @@
 ---
-title: "Rust 🦀 + Python 🐍"
+title: "Rust 🦀 + Python 🐍 Real World Demo"
 sub_title: Live Training Visualization
-author: Demo Presenter
+author: Brandon Pollack <brandon@tokyorust.org>
 ---
 
 Why Rust + Python?
 ===
 
-- **Python**: Easy to use, great ML ecosystem
+- **Python**: Easy to use, great ML/datascience ecosystem, great as a plugin language (eg blender, Davinci, etc)
 - **Rust**: Blazing fast, memory safe
 - **Together**: Best of both worlds!
 
 <!-- pause -->
 
-Use cases:
+Rust Use cases:
+<!-- pause -->
+- Awesome systems libraries
+<!-- pause -->
 - Performance-critical libraries
+<!-- pause -->
 - Real-time visualizations
-- Bidirectional communication
 
 <!-- end_slide -->
 
@@ -24,13 +27,13 @@ The Stack
 ===
 
 ```
-┌─────────────────────────────┐
-│   Python (numpy training)   │
-├─────────────────────────────┤
-│     PyO3 Bindings Layer     │
-├─────────────────────────────┤
-│   Rust (ratatui live TUI)   │
-└─────────────────────────────┘
+┌───────────────────────────── ┐
+│   Python (numpy for training)|
+├───────────────────────────── ┤
+│     PyO3 Bindings Layer      │
+├───────────────────────────── ┤
+│   Rust (ratatui live TUI)    │
+└───────────────────────────── ┘
 ```
 
 <!-- pause -->
@@ -68,9 +71,36 @@ impl LiveGraph {
 ```
 
 <!-- end_slide -->
+Why would you do this?
+===
+
+You wouldn't necessarily do it exactly like this, I'm just trying to keep it simple.
+
+<!-- pause -->
+
+In reality there are more robust graphing libraries like the one that comes with [burn](burn.dev),
+an ML framework with swappable backends (libtorch, wgpu, etc) built directly in rust.
+
+Other things you may want to consider using from the rust ecosystem but driving from python are:
+
+<!-- pause -->
+
+* [bevy](bevy.rs) -- A data oriented game engine in rust
+* [tokio](tokio.rs) -- An amazing async runtime in rust
+* Rayon -- A super fast and safe multithreading/parallelism runtime
+* Serialization
+
+
+<!-- end_slide -->
 
 Python Training Logic
 ===
+
+For this example we're just training regression
+```latex +render
+$$f(x) = w_2x^2 + w_1x + w_0$$
+```
+
 
 Python controls the entire training loop:
 
@@ -92,34 +122,30 @@ finally:
 ```
 
 <!-- pause -->
-
-No callbacks — simple imperative API!
-
-<!-- end_slide -->
-
-Key Pattern
-===
-
-The `try/finally` pattern ensures cleanup:
-
 ```python
-graph.start()
-try:
-    # Training loop here
-    for epoch in range(max_epochs):
-        ...
-        graph.add_point(epoch, train, val)
-        if graph.draw():
-            break
-finally:
-    graph.stop()  # Terminal always restored!
+def train_step(epoch: int) -> tuple[float, float]:
+    """Perform one training step and return (train_loss, val_loss)."""
+    global weights
+
+    # Compute gradients (analytical for this simple case)
+    pred = weights[0] + weights[1] * X_train + weights[2] * X_train**2
+    error = pred - y_train
+
+    grad_w0 = 2 * np.mean(error)
+    grad_w1 = 2 * np.mean(error * X_train)
+    grad_w2 = 2 * np.mean(error * X_train**2)
+
+    # SGD update with some noise to simulate mini-batch
+    noise = 0.02 * np.random.randn(3) * max(0.1, 1 - epoch / 100)
+    weights[0] -= learning_rate * grad_w0 + noise[0]
+    weights[1] -= learning_rate * grad_w1 + noise[1]
+    weights[2] -= learning_rate * grad_w2 + noise[2]
+
+    train_loss = compute_loss(X_train, y_train, weights)
+    val_loss = compute_loss(X_val, y_val, weights)
+
+    return (float(train_loss), float(val_loss))
 ```
-
-<!-- pause -->
-
-- Python controls the training loop
-- Rust only handles terminal rendering
-- Clean separation of concerns
 
 <!-- end_slide -->
 
@@ -128,35 +154,8 @@ Live Demo
 
 Press `Ctrl+E` to run:
 
-```python +exec
-import numpy as np
-import loss_graph
-
-np.random.seed(42)
-X = np.linspace(-1, 1, 100)
-y = X**2 + 0.1 * np.random.randn(100)
-weights = np.array([0.0, 0.5, 0.5])
-
-def train_step():
-    global weights
-    pred = weights[0] + weights[1]*X + weights[2]*X**2
-    err = pred - y
-    weights -= 0.1 * np.array([
-        2*np.mean(err), 2*np.mean(err*X), 2*np.mean(err*X**2)
-    ])
-    return float(np.mean(err**2)), float(np.mean(err**2) * 1.1)
-
-graph = loss_graph.LiveGraph(50, "Live Demo")
-graph.start()
-try:
-    for epoch in range(50):
-        train_loss, val_loss = train_step()
-        graph.add_point(epoch, train_loss, val_loss)
-        if graph.draw():
-            break
-    graph.mark_complete()
-finally:
-    graph.stop()
+```bash +exec +acquire_terminal
+uv run python demo.py
 ```
 
 <!-- end_slide -->
