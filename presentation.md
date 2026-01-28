@@ -4,8 +4,7 @@ sub_title: Live Training Visualization
 author: Brandon Pollack <brandon@tokyorust.org>
 ---
 
-Why Rust + Python?
-===
+# Why Rust + Python?
 
 - **Python**: Easy to use, great ML/datascience ecosystem, great as a plugin language (eg blender, Davinci, etc)
 - **Rust**: Blazing fast, memory safe
@@ -14,7 +13,9 @@ Why Rust + Python?
 <!-- pause -->
 
 Rust Use cases:
+
 <!-- pause -->
+
 - Awesome systems libraries
 <!-- pause -->
 - Performance-critical libraries
@@ -23,8 +24,7 @@ Rust Use cases:
 
 <!-- end_slide -->
 
-The Stack
-===
+# The Stack
 
 ```
 ┌───────────────────────────── ┐
@@ -39,6 +39,7 @@ The Stack
 <!-- pause -->
 
 **Key Technologies:**
+
 - `PyO3` - Rust bindings for Python
 - `maturin` - Build tool for PyO3
 - `ratatui` - Terminal UI framework
@@ -46,8 +47,7 @@ The Stack
 
 <!-- end_slide -->
 
-The Rust Code
-===
+# The Rust Code
 
 ```rust
 #[pyclass]  // ← Makes this struct accessible from Python
@@ -76,7 +76,7 @@ impl LiveGraph {
             terminal: None,
         }
     }
-    
+
     fn start(&mut self) -> PyResult<()> {
         // Initialize terminal, clear screen, set up UI
         self.terminal = Some(Terminal::new(...)?);
@@ -84,24 +84,25 @@ impl LiveGraph {
         Ok(())
     }
 ```
+
 <!-- end_slide -->
-    
+
 ```rust
     fn add_point(&mut self, epoch: usize, train: f64, val: f64) {
         // Append new training data point
         self.train_data.push((epoch as f64, train));
         self.val_data.push((epoch as f64, val));
     }
-    
+
     fn draw(&mut self) -> PyResult<bool> {
         // Render the graph in terminal and check for 'q' key
         let term = self.terminal.as_mut()
             .ok_or(PyValueError::new_err("Terminal not initialized"))?;
-        
+
         // Draw the UI layout
         term.draw(|frame| {
             let area = frame.area();
-            
+
             // Create a chart widget with our data
             let chart = Chart::new(vec![
                 Dataset::default()
@@ -116,11 +117,11 @@ impl LiveGraph {
                 .bounds([0.0, self.max_epochs as f64]))
             .y_axis(Axis::default()
                 .bounds([0.0, 1.0]));
-            
+
             // Render to the terminal
             frame.render_widget(chart, area);
         })?;
-        
+
         // Check if user pressed 'q' to quit
         if crossterm::event::poll(std::time::Duration::from_millis(10))? {
             if let Event::Key(key) = crossterm::event::read()? {
@@ -132,29 +133,34 @@ impl LiveGraph {
         Ok(false)
     }
 ```
+
 <!-- end_slide -->
-    
+
 **Key Rust Concepts for Beginners:**
+
 - `&self` - Immutable reference; read-only access (like Python's self)
 - `&mut self` - Mutable reference; allows the method to modify the struct's data
 - `mut` - Keyword that marks a variable/reference as mutable (can be changed)
 
 In rust we can only have one reference to mutable data at a time to ensure safety (this is because we don't have a GIL)
+
 <!-- pause -->
+
 - `Vec<T>` - Rust's growable list (like Python list)
 - `Option<T>` - Type that can be `Some(value)` or `None` (safer than null)
 
-These are some basic data types in rust.  In rust, unlike python, we always have to specify the data type.
+These are some basic data types in rust. In rust, unlike python, we always have to specify the data type.
+
 <!-- pause -->
 
 - `#[pyclass]` - PyO3 macro that exposes a Rust struct to Python
-- `#[pymethods]` - Macro that exposes methods to Python  
+- `#[pymethods]` - Macro that exposes methods to Python
 
-Macros are code that writes code for you.  They are identified by the `#[]` syntax (among others in rust).
+Macros are code that writes code for you. They are identified by the `#[]` syntax (among others in rust).
 
 <!-- end_slide -->
-Why would you do this?
-===
+
+# Why would you do this?
 
 You wouldn't necessarily do it exactly like this, I'm just trying to keep it simple.
 
@@ -167,22 +173,20 @@ Other things you may want to consider using from the rust ecosystem but driving 
 
 <!-- pause -->
 
-* [bevy](bevy.rs) -- A data oriented game engine in rust
-* [tokio](tokio.rs) -- An amazing async runtime in rust
-* Rayon -- A super fast and safe multithreading/parallelism runtime
-* Serialization
-
+- [bevy](bevy.rs) -- A data oriented game engine in rust
+- [tokio](tokio.rs) -- An amazing async runtime in rust
+- Rayon -- A super fast and safe multithreading/parallelism runtime
+- Serialization
 
 <!-- end_slide -->
 
-Python Training Logic
-===
+# Python Training Logic
 
 For this example we're just training regression
+
 ```latex +render
 $$f(x) = w_2x^2 + w_1x + w_0$$
 ```
-
 
 Python controls the entire training loop:
 
@@ -193,7 +197,7 @@ try:
     for epoch in range(100):
         # Your training logic
         train_loss, val_loss = train_step()
-        
+
         # Update visualization
         graph.add_point(epoch, train_loss, val_loss)
         if graph.draw():  # Returns True if 'q' pressed
@@ -204,6 +208,7 @@ finally:
 ```
 
 <!-- pause -->
+
 ```python
 def train_step(epoch: int) -> tuple[float, float]:
     """Perform one training step and return (train_loss, val_loss)."""
@@ -231,8 +236,7 @@ def train_step(epoch: int) -> tuple[float, float]:
 
 <!-- end_slide -->
 
-Live Demo
-===
+# Live Demo
 
 Press `Ctrl+E` to run:
 
@@ -242,8 +246,7 @@ uv run python demo.py
 
 <!-- end_slide -->
 
-Building the Project
-===
+# Building the Project
 
 ```bash
 # Build and install with uv
@@ -259,8 +262,7 @@ That's it! 🎉
 
 <!-- end_slide -->
 
-Key Takeaways
-===
+# Key Takeaways
 
 1. **PyO3** creates Python bindings for Rust
 2. **Python drives** the training loop — no callbacks
@@ -269,14 +271,28 @@ Key Takeaways
 <!-- pause -->
 
 Resources:
-- PyO3: https://pyo3.rs
-- ratatui: https://ratatui.rs
-- maturin: https://maturin.rs
+
+- PyO3: <https://pyo3.rs>
+- ratatui: <https://ratatui.rs>
+- maturin: <https://maturin.rs>
 
 <!-- end_slide -->
 
-Thank You!
-===
+Please check out rust as well!
+
+We have a meetup as well [https://tokyorust.org], and I'm available for questions!
+
+![image:width:30%](./tokyorust.png)
+
+<!-- end_slide -->
+
+Feel free to email me <brandon@tokyorust.org>
+
+![image:width:30%](./brandon.png)
+
+<!-- end_slide -->
+
+# Thank You
 
 Questions?
 
