@@ -1,1 +1,3 @@
-This is nearly completely AI generated and yet to be fully audited so dont judge yet
+This is a talk on using python and rust together.
+
+Talk given in tokyo in February 2026
