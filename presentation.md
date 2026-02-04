@@ -4,6 +4,26 @@ sub_title: Live Training Visualization
 author: Brandon Pollack <brandon@tokyorust.org>
 ---
 
+# Who am I?
+
+<!-- pause -->
+
+- Brandon Pollack
+- Ex Microsoft
+- Xoogler (7 years)
+- Worked on dist proc, OS, and even some apps
+
+<!-- end_slide -->
+
+# And Now Founder
+
+- Univalent.cc
+
+![image:width:30%](./univalent.png)
+![image:width:30%](./univalent_logo.png)
+
+<!-- end_slide -->
+
 # Why Rust + Python?
 
 - **Python**: Easy to use, great ML/datascience ecosystem, great as a plugin language (eg blender, Davinci, etc)
@@ -295,6 +315,10 @@ Feel free to email me <brandon@tokyorust.org>
 # Thank You
 
 Questions?
+
+We have plushies!
+
+![image:width:30%](./rust.png)
 
 <!-- pause -->
 
